@@ -136,9 +136,9 @@ app.post('/api/validate', async (req, res) => {
     }
 });
 
-// CRON JOB: Runs every day at 00:00 to check for expired licenses and notify WordPress
-cron.schedule('0 0 * * *', async () => {
-    console.log('Running daily expiration check...');
+// CRON JOB: Runs every minute to continuously check for expired licenses
+cron.schedule('* * * * *', async () => {
+    console.log('Running continuous expiration check...');
     try {
         const snapshot = await db.ref('licenses').once('value');
         if (!snapshot.exists()) return;
@@ -148,37 +148,42 @@ cron.schedule('0 0 * * *', async () => {
 
         for (const id in licenses) {
             const license = licenses[id];
-            // Only notify if there is a webhook URL and domain set up
-            if (license.webhookUrl && license.status === 'active') {
+
+            // Only process active licenses
+            if (license.status === 'active') {
                 const expiry = new Date(license.expiryDate).getTime();
 
-                // If the license just expired
+                // If the license just expired in real-time
                 if (now > expiry) {
-                    console.log(`License ${license.key} expired. Triggering message to ${license.domain}...`);
+                    console.log(`Server detected License ${license.key} expired. Updating status to expire...`);
 
-                    try {
-                        // Send trigger message to WordPress Dashboard webhook
-                        await fetch(license.webhookUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                event: 'license_expired',
-                                key: license.key,
-                                message: 'Warning! Your theme license has expired. Security updates have been disabled.'
-                            })
-                        });
+                    // Update status immediately so Dashboard gets the Realtime Notification
+                    await db.ref(`licenses/${id}`).update({ status: 'expired' });
+                    console.log(`Successfully moved ${license.key} to expired state.`);
 
-                        // Update status to expired so we don't spam them every day (unless we want to)
-                        await db.ref(`licenses/${id}`).update({ status: 'expired' });
-                        console.log(`Successfully notified ${license.domain}.`);
-                    } catch (e) {
-                        console.error(`Failed to trigger notification for ${license.domain}:`, e.message);
+                    // If a WordPress webhook is configured, ping that as well
+                    if (license.webhookUrl) {
+                        try {
+                            // Send trigger message to WordPress Dashboard webhook
+                            await fetch(license.webhookUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    event: 'license_expired',
+                                    key: license.key,
+                                    message: 'Warning! Your theme license has expired. Security updates have been disabled.'
+                                })
+                            });
+                            console.log(`Successfully notified WordPress block to ${license.domain}.`);
+                        } catch (e) {
+                            console.error(`Failed to trigger notification for ${license.domain}:`, e.message);
+                        }
                     }
                 }
             }
         }
     } catch (err) {
-        console.error('Error in expiration cron:', err);
+        console.error('Error in continuous expiration cron:', err);
     }
 });
 
