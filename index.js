@@ -35,11 +35,38 @@ app.get('/api/validate', (req, res) => {
     console.log(`[GET] /api/validate - Someone opened the API URL in their browser.`);
     res.status(405).json({
         message: 'Method Not Allowed. This endpoint expects a POST request with your license details.',
-        example_body: {
-            licenseKey: 'XXXX-XXXX-XXXX-XXXX',
-            domain: 'yourwebsite.com'
-        }
     });
+});
+
+// GET route to return expired licenses directly from server
+app.get('/api/expired-licenses', async (req, res) => {
+    try {
+        const snapshot = await db.ref('licenses').once('value');
+        if (!snapshot.exists()) {
+            return res.json([]);
+        }
+
+        const allLicenses = snapshot.val();
+        const expiredLicenses = [];
+
+        for (const id in allLicenses) {
+            // Note: Since you're continuously moving them to status:'expired', this array holds all of them
+            if (allLicenses[id].status === 'expired') {
+                expiredLicenses.push({
+                    id,
+                    ...allLicenses[id]
+                });
+            }
+        }
+
+        // Sort by most recently created
+        expiredLicenses.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+        return res.json(expiredLicenses);
+    } catch (error) {
+        console.error('Error fetching expired licenses:', error);
+        return res.status(500).json({ valid: false, message: 'Internal Server Error' });
+    }
 });
 
 // POST route for actual license validation
