@@ -73,9 +73,34 @@ app.post('/api/validate', async (req, res) => {
         // Check expiration
         if (now > expiry) {
             console.log(`       Result: Failed - License key expired.`);
+
+            // Trigger immediate status change and webhook notification if it wasn't expired already
+            if (license.status !== 'expired') {
+                await db.ref(`licenses/${licenseId}`).update({ status: 'expired' });
+                console.log(`       Status updated to expired because time passed.`);
+
+                if (license.webhookUrl) {
+                    try {
+                        await fetch(license.webhookUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                event: 'license_expired',
+                                key: license.key,
+                                message: 'Warning! Your theme license has expired. Security updates have been disabled.'
+                            })
+                        });
+                        console.log(`       Triggered immediate expiration webhook to: ${license.domain}`);
+                    } catch (e) {
+                        console.error(`       Failed to send expiry webhook:`, e.message);
+                    }
+                }
+            }
+
             return res.status(403).json({
                 valid: false,
-                message: 'Your license key has expired. Please renew.'
+                message: 'Your license key has expired. Please renew.',
+                expiryDate: license.expiryDate
             });
         }
 
