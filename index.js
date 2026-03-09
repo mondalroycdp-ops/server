@@ -6,7 +6,12 @@ const cron = require('node-cron');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 // IMPORTANT: Replace with your actual Firebase Admin SDK json
-const serviceAccount = require('./firebaseServiceAccount.json');
+let serviceAccount = require('./firebaseServiceAccount.json');
+
+// Fix for Render / other hosting: replace escaped newlines with actual newlines
+if (serviceAccount.private_key) {
+    serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+}
 
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
